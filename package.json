@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "solid-js": "^1.9.6",
-    "stoat.js": "workspace:^",
+    "stoat.js": "file:../client/packages/stoat.js",
     "stoat-api": "0.8.9-4",
     "vite": "^6.0.0",
     "vite-plugin-solid": "^2.11.0"

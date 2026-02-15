@@ -16,9 +16,17 @@ export interface PluginStorage {
   remove(key: string): void;
 }
 
+export interface ContentPage {
+  /** Unique route id (used in /ext/:pageId) */
+  id: string;
+  /** Component rendered in the main content area */
+  component: () => unknown;
+}
+
 export interface PluginAPI {
   registerInterfaceWrapper(wrapper: (props: { children: unknown }) => unknown): void;
   registerSidebarAction(action: SidebarAction): void;
+  registerContentPage(page: ContentPage): void;
   storage: PluginStorage;
   getClient(): Client;
 }

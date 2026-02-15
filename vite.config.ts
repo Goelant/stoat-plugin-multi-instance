@@ -60,7 +60,7 @@ function getKnownExports(moduleName: string): string[] {
       return [
         "render", "Portal", "Dynamic", "template", "delegateEvents",
         "insert", "spread", "effect", "memo", "style",
-        "classList", "use", "createComponent", "setAttribute",
+        "classList", "className", "use", "createComponent", "setAttribute",
         "addEventListener", "innerHTML",
       ];
     case "stoat.js":
