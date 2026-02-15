@@ -1,0 +1,23 @@
+{
+  "name": "multi-instance",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/multi-instance.js",
+  "exports": {
+    ".": "./dist/multi-instance.js"
+  },
+  "private": true,
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "localforage": "^1.10.0"
+  },
+  "devDependencies": {
+    "solid-js": "^1.9.6",
+    "stoat.js": "workspace:^",
+    "stoat-api": "0.8.9-4",
+    "vite": "^6.0.0",
+    "vite-plugin-solid": "^2.11.0"
+  }
+}
