@@ -135,11 +135,149 @@ function IconBadge() {
 }
 
 /**
+ * State for the plugin's own invite modal
+ */
+interface InviteModalState {
+  channel: import("stoat.js").Channel;
+  instanceUrl: string;
+}
+
+const inviteModalStyles = {
+  overlay: {
+    position: "fixed",
+    top: "0",
+    left: "0",
+    width: "100vw",
+    height: "100vh",
+    "z-index": "10000",
+    display: "flex",
+    "align-items": "center",
+    "justify-content": "center",
+    background: "rgba(0,0,0,0.5)",
+  } as Record<string, string>,
+  dialog: {
+    background: "var(--md-sys-color-surface-container-high)",
+    color: "var(--md-sys-color-on-surface)",
+    "border-radius": "16px",
+    padding: "24px",
+    "min-width": "320px",
+    "max-width": "440px",
+    "box-shadow": "0 4px 12px rgba(0,0,0,0.3)",
+    display: "flex",
+    "flex-direction": "column",
+    gap: "16px",
+  } as Record<string, string>,
+  code: {
+    padding: "12px",
+    "user-select": "all",
+    "font-size": "1.2em",
+    "text-align": "center",
+    "font-family": "var(--fonts-monospace)",
+    background: "var(--md-sys-color-surface-container)",
+    "border-radius": "8px",
+    "word-break": "break-all",
+  } as Record<string, string>,
+  actions: {
+    display: "flex",
+    gap: "8px",
+    "justify-content": "flex-end",
+  } as Record<string, string>,
+  btn: {
+    padding: "8px 16px",
+    "border-radius": "8px",
+    border: "none",
+    cursor: "pointer",
+    "font-size": "14px",
+    background: "var(--md-sys-color-surface-container-highest)",
+    color: "var(--md-sys-color-on-surface)",
+  } as Record<string, string>,
+  btnPrimary: {
+    background: "var(--md-sys-color-primary)",
+    color: "var(--md-sys-color-on-primary)",
+  } as Record<string, string>,
+};
+
+/**
+ * Plugin's own invite modal — creates invite via the external instance API
+ * and displays the link using the correct instance host.
+ */
+function PluginInviteModal(props: {
+  state: Accessor<InviteModalState | null>;
+  close: () => void;
+}) {
+  const [link, setLink] = createSignal<string | null>(null);
+  const [error, setError] = createSignal<string | null>(null);
+
+  createEffect(() => {
+    const s = props.state();
+    if (!s) { setLink(null); setError(null); return; }
+    setLink(null);
+    setError(null);
+    s.channel.createInvite().then((invite) => {
+      const inviteLink = `${s.instanceUrl}/invite/${invite._id}`;
+      setLink(inviteLink);
+    }).catch((e) => {
+      setError(String(e));
+    });
+  });
+
+  return (
+    <Portal mount={document.body}>
+      <Show when={props.state()}>
+        <div
+          style={inviteModalStyles.overlay}
+          onMouseDown={() => props.close()}
+        >
+          <div
+            style={inviteModalStyles.dialog}
+            onMouseDown={(e: MouseEvent) => e.stopPropagation()}
+          >
+            <span style={{ "font-size": "18px", "font-weight": "600" }}>Create Invite</span>
+            <Show when={error()}>
+              <span style={{ color: "var(--md-sys-color-error)" }}>{error()}</span>
+            </Show>
+            <Show when={!link() && !error()}>
+              <span>Generating invite...</span>
+            </Show>
+            <Show when={link()}>
+              <div>
+                <span>Here is your new invite code:</span>
+                <div style={inviteModalStyles.code}>{link()}</div>
+              </div>
+            </Show>
+            <div style={inviteModalStyles.actions}>
+              <Show when={link()}>
+                <button
+                  style={{ ...inviteModalStyles.btn, ...inviteModalStyles.btnPrimary }}
+                  onClick={() => {
+                    const l = link();
+                    if (l) navigator.clipboard.writeText(l);
+                  }}
+                >
+                  Copy Link
+                </button>
+              </Show>
+              <button
+                style={inviteModalStyles.btn}
+                onClick={() => props.close()}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
+    </Portal>
+  );
+}
+
+/**
  * Server context menu for external instance servers
  */
 function PluginServerContextMenu(props: {
   state: Accessor<ContextMenuState | null>;
   close: () => void;
+  showInvite: (s: InviteModalState) => void;
 }) {
   const { openModal } = useModals();
 
@@ -208,9 +346,10 @@ function PluginServerContextMenu(props: {
                     const channel = srv.orderedChannels
                       .find((cat) => cat.channels.find((ch) => ch.havePermission("InviteOthers")))
                       ?.channels.find((ch) => ch.havePermission("InviteOthers"));
+                    const instUrl = ctx().instanceUrl;
                     props.close();
                     if (channel) {
-                      openModal({ type: "create_invite", channel });
+                      props.showInvite({ channel, instanceUrl: instUrl });
                     }
                   }}
                 >
@@ -352,6 +491,7 @@ function createPluginSidebarEntries(
   setPinnedDMs: Setter<string[]>,
 ) {
   const [ctxMenu, setCtxMenu] = createSignal<ContextMenuState | null>(null);
+  const [inviteModal, setInviteModal] = createSignal<InviteModalState | null>(null);
 
   return function PluginSidebarEntries() {
     /** Build per-instance groups: { instanceUrl, servers[], dms[] } */
@@ -386,7 +526,8 @@ function createPluginSidebarEntries(
 
     return (
       <>
-      <PluginServerContextMenu state={ctxMenu} close={() => setCtxMenu(null)} />
+      <PluginInviteModal state={inviteModal} close={() => setInviteModal(null)} />
+      <PluginServerContextMenu state={ctxMenu} close={() => setCtxMenu(null)} showInvite={setInviteModal} />
       <For each={instanceGroups()}>
         {(group) => {
           const serverEntries = () => (
