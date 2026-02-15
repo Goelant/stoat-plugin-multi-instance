@@ -146,6 +146,25 @@ const plugin: StoatPlugin = {
       onClick: () => setShowModal(true),
     });
 
+    // 7. Register channel decorator — show instance tag in DM headers
+    api.registerChannelDecorator((channelId: string) => {
+      const instanceUrl = manager.resolveChannelInstance(channelId);
+      if (!instanceUrl) return null;
+      const hostname = new URL(instanceUrl).hostname;
+      return (
+        <span style={{
+          "margin-left": "8px",
+          padding: "2px 6px",
+          "border-radius": "4px",
+          "font-size": "11px",
+          background: "var(--md-sys-color-surface-container-high)",
+          color: "var(--md-sys-color-on-surface-variant)",
+        }}>
+          {hostname}
+        </span>
+      );
+    });
+
     console.info("[multi-instance] Plugin initialized");
   },
 };

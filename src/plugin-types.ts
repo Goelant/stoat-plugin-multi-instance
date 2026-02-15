@@ -23,10 +23,13 @@ export interface ContentPage {
   component: () => unknown;
 }
 
+export type ChannelDecorator = (channelId: string) => unknown | null;
+
 export interface PluginAPI {
   registerInterfaceWrapper(wrapper: (props: { children: unknown }) => unknown): void;
   registerSidebarAction(action: SidebarAction): void;
   registerContentPage(page: ContentPage): void;
+  registerChannelDecorator(decorator: ChannelDecorator): void;
   storage: PluginStorage;
   getClient(): Client;
 }
