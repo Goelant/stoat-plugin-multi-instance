@@ -1,6 +1,6 @@
 import type { StoatPlugin, PluginAPI } from "./plugin-types";
 import { createSignal, createEffect, useContext, useParams, For, Show, onCleanup } from "./deps";
-import { clientContext, useClient, entryContainer, useNavigate } from "./deps";
+import { clientContext, useClient, entryContainer, useModals, Portal } from "./deps";
 
 import type { Accessor, Setter } from "solid-js";
 
@@ -30,6 +30,7 @@ const Tooltip = UI["@revolt/ui"].Tooltip as (props: Record<string, unknown>) => 
  */
 interface ContextMenuState {
   server: import("stoat.js").Server;
+  instanceUrl: string;
   x: number;
   y: number;
 }
@@ -41,11 +42,11 @@ const menuStyles = {
     left: "0",
     width: "100vw",
     height: "100vh",
-    "z-index": "999",
+    "z-index": "10000",
   } as Record<string, string>,
   menu: {
     position: "fixed",
-    "z-index": "1000",
+    "z-index": "10001",
     display: "flex",
     "flex-direction": "column",
     padding: "8px 0",
@@ -140,7 +141,7 @@ function PluginServerContextMenu(props: {
   state: Accessor<ContextMenuState | null>;
   close: () => void;
 }) {
-  const navigate = useNavigate();
+  const { openModal } = useModals();
 
   const handleMouseDown = () => props.close();
 
@@ -155,6 +156,7 @@ function PluginServerContextMenu(props: {
   }
 
   return (
+    <Portal mount={document.body}>
     <Show when={props.state()}>
       {(ctx) => {
         const server = () => ctx().server;
@@ -175,6 +177,8 @@ function PluginServerContextMenu(props: {
           fn();
           props.close();
         }
+
+        const hasMiddleSection = () => permissionInvite() || permissionIdentity() || permissionSettings();
 
         return (
           <div style={menuStyles.overlay} onMouseDown={handleMouseDown}>
@@ -199,19 +203,16 @@ function PluginServerContextMenu(props: {
                   style={menuStyles.item}
                   onMouseOver={(e) => { (e.currentTarget as HTMLElement).style.background = "color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)"; }}
                   onMouseOut={(e) => { (e.currentTarget as HTMLElement).style.background = "none"; }}
-                  onClick={() => action(async () => {
-                    const channel = server().orderedChannels
+                  onClick={() => {
+                    const srv = server();
+                    const channel = srv.orderedChannels
                       .find((cat) => cat.channels.find((ch) => ch.havePermission("InviteOthers")))
                       ?.channels.find((ch) => ch.havePermission("InviteOthers"));
+                    props.close();
                     if (channel) {
-                      try {
-                        const invite = await channel.createInvite();
-                        navigator.clipboard.writeText(invite._id);
-                      } catch (e) {
-                        console.error("[multi-instance] Failed to create invite:", e);
-                      }
+                      openModal({ type: "create_invite", channel });
                     }
-                  })}
+                  }}
                 >
                   <IconPersonAdd /> <span>Create invite</span>
                 </button>
@@ -223,7 +224,7 @@ function PluginServerContextMenu(props: {
                   onMouseOver={(e) => { (e.currentTarget as HTMLElement).style.background = "color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)"; }}
                   onMouseOut={(e) => { (e.currentTarget as HTMLElement).style.background = "none"; }}
                   onClick={() => action(() => {
-                    navigate(`/server/${server().id}/settings/identity`);
+                    openModal({ type: "server_identity", member: server().member });
                   })}
                 >
                   <IconFace /> <span>Edit your identity</span>
@@ -236,14 +237,14 @@ function PluginServerContextMenu(props: {
                   onMouseOver={(e) => { (e.currentTarget as HTMLElement).style.background = "color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)"; }}
                   onMouseOut={(e) => { (e.currentTarget as HTMLElement).style.background = "none"; }}
                   onClick={() => action(() => {
-                    navigate(`/server/${server().id}/settings`);
+                    openModal({ type: "settings", config: "server", context: server() });
                   })}
                 >
                   <IconSettings /> <span>Open server settings</span>
                 </button>
               </Show>
 
-              <Show when={permissionInvite() || permissionIdentity() || permissionSettings()}>
+              <Show when={hasMiddleSection()}>
                 <div style={menuStyles.divider} />
               </Show>
 
@@ -253,17 +254,16 @@ function PluginServerContextMenu(props: {
                   onMouseOver={(e) => { (e.currentTarget as HTMLElement).style.background = "color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)"; }}
                   onMouseOut={(e) => { (e.currentTarget as HTMLElement).style.background = "none"; }}
                   onClick={() => action(() => {
-                    if (confirm(`Leave ${server().name}?`)) {
-                      server().delete();
-                      navigate("/app");
-                    }
+                    openModal({ type: "leave_server", server: server() });
                   })}
                 >
                   <IconLogout /> <span>Leave server</span>
                 </button>
               </Show>
 
-              <div style={menuStyles.divider} />
+              <Show when={!server().owner?.self}>
+                <div style={menuStyles.divider} />
+              </Show>
 
               <button
                 style={menuStyles.item}
@@ -278,6 +278,7 @@ function PluginServerContextMenu(props: {
         );
       }}
     </Show>
+    </Portal>
   );
 }
 
@@ -387,17 +388,8 @@ function createPluginSidebarEntries(
       <>
       <PluginServerContextMenu state={ctxMenu} close={() => setCtxMenu(null)} />
       <For each={instanceGroups()}>
-        {(group) => (
-          <div style={{
-            background: "var(--md-sys-color-surface-container)",
-            "border-radius": "28px",
-            padding: "4px 0",
-            margin: "0",
-            display: "flex",
-            "flex-direction": "column",
-            "align-items": "center",
-            gap: "2px",
-          }}>
+        {(group) => {
+          const serverEntries = () => (
             <For each={group.servers}>
               {(server) => (
                 <Tooltip placement="right" content={server.name} aria={server.name}>
@@ -406,7 +398,7 @@ function createPluginSidebarEntries(
                     href={`/server/${server.id}`}
                     onContextMenu={(e: MouseEvent) => {
                       e.preventDefault();
-                      setCtxMenu({ server, x: e.clientX, y: e.clientY });
+                      setCtxMenu({ server, instanceUrl: group.instanceUrl, x: e.clientX, y: e.clientY });
                     }}
                   >
                     <Avatar
@@ -419,6 +411,9 @@ function createPluginSidebarEntries(
                 </Tooltip>
               )}
             </For>
+          );
+
+          const dmEntries = () => (
             <For each={group.dms}>
               {(channel) => (
                 <div style={{ position: "relative" }}>
@@ -469,8 +464,29 @@ function createPluginSidebarEntries(
                 </div>
               )}
             </For>
-          </div>
-        )}
+          );
+
+          return (
+            <Show
+              when={group.dms.length > 0}
+              fallback={serverEntries()}
+            >
+              <div style={{
+                background: "var(--md-sys-color-surface-container)",
+                "border-radius": "28px",
+                padding: "4px 0",
+                margin: "0",
+                display: "flex",
+                "flex-direction": "column",
+                "align-items": "center",
+                gap: "2px",
+              }}>
+                {serverEntries()}
+                {dmEntries()}
+              </div>
+            </Show>
+          );
+        }}
       </For>
       </>
     );

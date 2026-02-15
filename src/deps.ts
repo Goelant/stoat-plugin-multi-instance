@@ -26,6 +26,9 @@ export const {
 export const { createStore } =
   S["solid-js/store"] as typeof import("solid-js/store");
 
+export const { Portal } =
+  S["solid-js/web"] as typeof import("solid-js/web");
+
 // Routing
 export const { useSmartParams, useParams, useNavigate, useLocation } =
   S["@revolt/routing"] as {
@@ -40,6 +43,14 @@ export const { useClient, clientContext } =
   S["@revolt/client"] as {
     useClient: () => () => import("stoat.js").Client;
     clientContext: import("solid-js").Context<unknown>;
+  };
+
+// Modals
+export const { useModals } =
+  S["@revolt/modal"] as {
+    useModals: () => {
+      openModal: (modal: Record<string, unknown>) => void;
+    };
   };
 
 // Sidebar styling
