@@ -2,6 +2,9 @@
 
 A plugin for [Stoat](https://github.com/stoatchat/for-web) that enables connecting to multiple Stoat/Revolt instances simultaneously from a single client.
 
+to build it :
+`pnpm --filter multi-instance exec vite build`
+
 ## Features
 
 ### Multi-instance connection
