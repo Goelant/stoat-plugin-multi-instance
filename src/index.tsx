@@ -1,6 +1,8 @@
 import type { StoatPlugin, PluginAPI } from "./plugin-types";
-import { createSignal, useContext, useParams, For } from "./deps";
+import { createSignal, createEffect, useContext, useParams, For, Show } from "./deps";
 import { clientContext, useClient, entryContainer } from "./deps";
+
+import type { Accessor, Setter } from "solid-js";
 
 import { ClientManager } from "./ClientManager";
 import { InstancesStore } from "./stores/InstancesStore";
@@ -27,10 +29,24 @@ const Tooltip = UI["@revolt/ui"].Tooltip as (props: Record<string, unknown>) => 
  * Interface wrapper that overrides the client context when a plugin-owned
  * server or channel is being viewed.
  */
-function createMultiInstanceBridge(manager: ClientManager) {
+function createMultiInstanceBridge(manager: ClientManager, setPinnedDMs: Setter<string[]>) {
   return function MultiInstanceBridge(props: { children: unknown }) {
     const params = useParams<{ server?: string; channel?: string }>();
     const primaryController = useContext(clientContext);
+
+    // Auto-pin DMs from external instances when navigated to
+    createEffect(() => {
+      const channelId = params.channel;
+      if (!channelId) return;
+      const instanceUrl = manager.resolveChannelInstance(channelId);
+      if (!instanceUrl) return;
+      const client = manager.getClient(instanceUrl);
+      if (!client) return;
+      const channel = client.channels.get(channelId);
+      if (channel && (channel.type === "DirectMessage" || channel.type === "Group")) {
+        setPinnedDMs((prev) => prev.includes(channelId) ? prev : [...prev, channelId]);
+      }
+    });
 
     // Build a stable Proxy whose getCurrentClient() resolves reactively
     // at *call time* (when SolidJS evaluates it in JSX / createMemo),
@@ -69,34 +85,127 @@ function createMultiInstanceBridge(manager: ClientManager) {
 }
 
 /**
- * Sidebar component that renders extra servers from plugin instances.
+ * Sidebar component that renders servers + pinned DMs grouped per instance.
+ * Each instance group is wrapped in a visual container.
  */
-function createPluginServers(manager: ClientManager, primaryClient: () => import("stoat.js").Client) {
-  return function PluginServers() {
-    const servers = () => {
-      const allServers = manager.allServers();
+function createPluginSidebarEntries(
+  manager: ClientManager,
+  primaryClient: () => import("stoat.js").Client,
+  pinnedDMs: Accessor<string[]>,
+  setPinnedDMs: Setter<string[]>,
+) {
+  return function PluginSidebarEntries() {
+    /** Build per-instance groups: { instanceUrl, servers[], dms[] } */
+    const instanceGroups = () => {
       const primary = primaryClient();
-      if (!primary) return allServers;
-      // Filter out servers that the primary client already has
-      return allServers.filter((s) => !primary.servers.has(s.id));
+      const pinned = pinnedDMs();
+      const groups: {
+        instanceUrl: string;
+        servers: import("stoat.js").Server[];
+        dms: import("stoat.js").Channel[];
+      }[] = [];
+
+      for (const instanceUrl of manager.connectedInstances()) {
+        const client = manager.getClient(instanceUrl);
+        if (!client) continue;
+
+        const servers = client.servers
+          .toList()
+          .filter((s) => !primary || !primary.servers.has(s.id));
+
+        const dms = pinned
+          .filter((id) => manager.resolveChannelInstance(id) === instanceUrl)
+          .map((id) => client.channels.get(id))
+          .filter((ch): ch is import("stoat.js").Channel => !!ch);
+
+        if (servers.length > 0 || dms.length > 0) {
+          groups.push({ instanceUrl, servers, dms });
+        }
+      }
+      return groups;
     };
 
     return (
-      <For each={servers()}>
-        {(server) => (
-          <Tooltip placement="right" content={server.name} aria={server.name}>
-            <a
-              class={entryContainer()}
-              href={`/server/${server.id}`}
-            >
-              <Avatar
-                size={42}
-                src={server.iconURL}
-                fallback={server.name}
-                interactive
-              />
-            </a>
-          </Tooltip>
+      <For each={instanceGroups()}>
+        {(group) => (
+          <div style={{
+            background: "var(--md-sys-color-surface-container)",
+            "border-radius": "28px",
+            padding: "4px 0",
+            margin: "0",
+            display: "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            gap: "2px",
+          }}>
+            <For each={group.servers}>
+              {(server) => (
+                <Tooltip placement="right" content={server.name} aria={server.name}>
+                  <a
+                    class={entryContainer()}
+                    href={`/server/${server.id}`}
+                  >
+                    <Avatar
+                      size={42}
+                      src={server.iconURL}
+                      fallback={server.name}
+                      interactive
+                    />
+                  </a>
+                </Tooltip>
+              )}
+            </For>
+            <For each={group.dms}>
+              {(channel) => (
+                <div style={{ position: "relative" }}>
+                  <Tooltip
+                    placement="right"
+                    content={channel.recipient?.username ?? channel.name ?? "DM"}
+                    aria={channel.recipient?.username ?? channel.name ?? "DM"}
+                  >
+                    <a
+                      class={entryContainer()}
+                      href={`/channel/${channel.id}`}
+                    >
+                      <Avatar
+                        size={42}
+                        src={channel.recipient?.avatarURL ?? channel.iconURL}
+                        fallback={channel.recipient?.username ?? channel.name}
+                        interactive
+                      />
+                    </a>
+                  </Tooltip>
+                  <button
+                    onClick={(e: MouseEvent) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setPinnedDMs((prev) => prev.filter((id) => id !== channel.id));
+                    }}
+                    style={{
+                      position: "absolute",
+                      top: "2px",
+                      right: "2px",
+                      width: "16px",
+                      height: "16px",
+                      "border-radius": "50%",
+                      border: "none",
+                      background: "var(--md-sys-color-surface-container-highest)",
+                      color: "var(--md-sys-color-on-surface)",
+                      "font-size": "10px",
+                      "line-height": "1",
+                      cursor: "pointer",
+                      display: "flex",
+                      "align-items": "center",
+                      "justify-content": "center",
+                      padding: "0",
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
         )}
       </For>
     );
@@ -126,12 +235,15 @@ const plugin: StoatPlugin = {
       }
     }
 
-    // 3. Register interface wrapper (overrides client context for plugin-owned entities)
-    const MultiInstanceBridge = createMultiInstanceBridge(manager);
+    // 3. Pinned DMs state (DMs the user explicitly opened from external instances)
+    const [pinnedDMs, setPinnedDMs] = createSignal<string[]>([]);
+
+    // 4. Register interface wrapper (overrides client context for plugin-owned entities)
+    const MultiInstanceBridge = createMultiInstanceBridge(manager, setPinnedDMs);
     api.registerInterfaceWrapper(MultiInstanceBridge as never);
 
-    // 4. Register sidebar entries (extra servers from other instances)
-    const PluginServers = createPluginServers(manager, () => api.getClient());
+    // 5. Register sidebar entries (extra servers + pinned DMs from other instances)
+    const PluginServers = createPluginSidebarEntries(manager, () => api.getClient(), pinnedDMs, setPinnedDMs);
     const { setState } = (window as unknown as Record<string, { state: unknown; setState: Function }>).__STOAT_PLUGIN_STATE__;
     setState("sidebarEntries", (prev: unknown[]) => [...prev, PluginServers]);
 

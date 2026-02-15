@@ -11,6 +11,7 @@ const S = (window as Record<string, unknown>).__STOAT__ as Record<
 // Re-export Solid.js primitives from the host app
 export const {
   createSignal,
+  createEffect,
   createMemo,
   createContext,
   useContext,
