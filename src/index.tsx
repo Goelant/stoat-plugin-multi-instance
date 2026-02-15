@@ -32,34 +32,36 @@ function createMultiInstanceBridge(manager: ClientManager) {
     const params = useParams<{ server?: string; channel?: string }>();
     const primaryController = useContext(clientContext);
 
-    const resolvedController = () => {
-      const entityId = params.server || params.channel;
-      if (entityId) {
-        const serverUrl = manager.resolveServerInstance(entityId);
-        const channelUrl = !serverUrl ? manager.resolveChannelInstance(entityId) : undefined;
-        const instanceUrl = serverUrl || channelUrl;
-        if (instanceUrl) {
-          const resolvedClient = manager.getClient(instanceUrl);
-          if (resolvedClient) {
-            return new Proxy(primaryController as object, {
-              get(target, prop) {
-                if (prop === "getCurrentClient") {
-                  return () => resolvedClient;
-                }
-                return (target as Record<string | symbol, unknown>)[prop];
-              },
-            });
-          }
+    // Build a stable Proxy whose getCurrentClient() resolves reactively
+    // at *call time* (when SolidJS evaluates it in JSX / createMemo),
+    // not at Provider creation time.  This matters because SolidJS
+    // Context Provider values are NOT reactive — they're read once.
+    const reactiveController = new Proxy(primaryController as object, {
+      get(target, prop) {
+        if (prop === "getCurrentClient") {
+          return () => {
+            const entityId = params.server || params.channel;
+            if (entityId) {
+              const serverUrl = manager.resolveServerInstance(entityId);
+              const channelUrl = !serverUrl ? manager.resolveChannelInstance(entityId) : undefined;
+              const instanceUrl = serverUrl || channelUrl;
+              if (instanceUrl) {
+                const resolvedClient = manager.getClient(instanceUrl);
+                if (resolvedClient) return resolvedClient;
+              }
+            }
+            return ((target as Record<string | symbol, unknown>).getCurrentClient as () => unknown)();
+          };
         }
-      }
-      return primaryController;
-    };
+        return (target as Record<string | symbol, unknown>)[prop];
+      },
+    });
 
     // Access clientContext.Provider via the context object
     const Provider = (clientContext as unknown as { Provider: (props: { value: unknown; children: unknown }) => unknown }).Provider;
 
     return (
-      <Provider value={resolvedController()}>
+      <Provider value={reactiveController}>
         {props.children}
       </Provider>
     );
